@@ -27,6 +27,9 @@
 #endif
 
 #import "webview.h"
+#import "webview_darwin.h"
+
+extern void webviewCallback(void *, const char *);
 
 static void createMenuItem(NSMenu *menu, NSString *title, SEL action, NSString *key, NSEventModifierFlags modifiers) {
     NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title action:action keyEquivalent:key];
@@ -36,21 +39,20 @@ static void createMenuItem(NSMenu *menu, NSString *title, SEL action, NSString *
 }
 
 @implementation WebViewDelegate
-- (id) initWithPublic:(struct webview *)w
+- (id) initWithContext:(void *)context url:(NSURL *)url title:(NSString *)title width:(int)width height:(int)height resizable:(BOOL)resizable debug:(BOOL)debug
 {
     if (!(self = [super init]))
         return nil;
 
+    _context = context;
     _shouldExit = NO;
-    _pub = w;
     _pool = [NSAutoreleasePool new];
 
     // ensure the shared instance is created
     [NSApplication sharedApplication];
 
     WKPreferences *wkprefs = [WKPreferences new];
-    [wkprefs enableDevExtras];
-    // [wkprefs setValue:[NSNumber numberWithBool:w->debug] forKey:@"developerExtrasEnabled"];
+    if (debug) [wkprefs _setDeveloperExtrasEnabled:YES];
 
     WKUserContentController *userController = [WKUserContentController new];
     [userController addScriptMessageHandler:self name:@"invoke"];
@@ -71,14 +73,14 @@ static void createMenuItem(NSMenu *menu, NSString *title, SEL action, NSString *
     config.userContentController = userController;
     config.preferences = wkprefs;
 
-    CGRect r = CGRectMake(0, 0, w->width, w->height);
+    CGRect r = CGRectMake(0, 0, width, height);
     NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable;
-    if (w->resizable)
+    if (resizable)
         style |= NSWindowStyleMaskResizable;
 
     _window = [[NSWindow alloc] initWithContentRect:r styleMask:style backing:NSBackingStoreBuffered defer:NO];
 
-    _window.title = [NSString stringWithUTF8String:w->title];
+    _window.title = title;
     _window.delegate = self;
 
     [_window autorelease];
@@ -88,7 +90,7 @@ static void createMenuItem(NSMenu *menu, NSString *title, SEL action, NSString *
     _webview.UIDelegate = self;
     _webview.navigationDelegate = self;
 
-    [_webview loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:[NSString stringWithUTF8String:w->url]]]];
+    [_webview loadRequest:[NSURLRequest requestWithURL:url]];
     _webview.autoresizesSubviews = YES;
     _webview.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     [_window.contentView addSubview:_webview];
@@ -124,26 +126,17 @@ static void createMenuItem(NSMenu *menu, NSString *title, SEL action, NSString *
     return self;
 }
 
-// - (void) dealloc
-// {
-//     // do stuff
-//     [super dealloc];
-// }
-
 - (void) windowWillClose:(NSNotification *)notification
 {
-    webview_terminate(_pub);
+    _shouldExit = YES;
 }
 
 - (void) userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message
 {
-    if (!_pub || !_pub->external_invoke_cb)
-        return;
-
-    _pub->external_invoke_cb(_pub, ((NSString *)message.body).UTF8String);
+    webviewCallback(_context, ((NSString *)message.body).UTF8String);
 }
 
-- (void) _download:(/*_WKDownload **/id)download decideDestinationWithSuggestedFilename:(NSString *)filename completionHandler:(void (^)(BOOL allowOverwrite, NSString *destination))completionHandler
+- (void) _download:(_WKDownload *)download decideDestinationWithSuggestedFilename:(NSString *)filename completionHandler:(void (^)(BOOL allowOverwrite, NSString *destination))completionHandler
 {
     NSSavePanel *panel = [NSSavePanel savePanel];
     panel.canCreateDirectories = YES;
@@ -158,9 +151,9 @@ static void createMenuItem(NSMenu *menu, NSString *title, SEL action, NSString *
     }];
 }
 
-- (void) _download:(/*_WKDownload **/id)download didFailWithError:(NSError *)error
+- (void) _download:(_WKDownload *)download didFailWithError:(NSError *)error
 {
-    printf("%s\n", error.localizedDescription.UTF8String);
+    NSLog(@"%s\n", error.localizedDescription.UTF8String);
 }
 
 - (void) webView:(WKWebView *)webView runOpenPanelWithParameters:(WKOpenPanelParameters *)parameters initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(NSArray<NSURL *> *URLs))completionHandler
@@ -223,8 +216,6 @@ static void createMenuItem(NSMenu *menu, NSString *title, SEL action, NSString *
 - (int) loop:(BOOL)blocking
 {
     NSDate *until = blocking ? NSDate.distantFuture : NSDate.distantPast;
-
-    // [NSString stringWithUTF8String:kCFRunLoopDefaultMode];
     NSEvent *event = [NSApplication.sharedApplication nextEventMatchingMask:NSEventMaskAny untilDate:until inMode:NSDefaultRunLoopMode dequeue:YES];
     if (event)
         [NSApplication.sharedApplication sendEvent:event];
@@ -338,83 +329,8 @@ static void createMenuItem(NSMenu *menu, NSString *title, SEL action, NSString *
     return nil;
 }
 
-- (void) terminate
+- (void) stop
 {
     _shouldExit = YES;
 }
-
-- (void) exit
-{
-    NSApplication *app = NSApplication.sharedApplication;
-    [app terminate:app];
-}
 @end
-
-@implementation WKPreferences (DevExtras)
-@dynamic _developerExtrasEnabled;
-
-- (void)enableDevExtras
-{
-    [self _setDeveloperExtrasEnabled:YES];
-}
-@end
-
-int webview_init(struct webview *w) {
-    w->priv = [[WebViewDelegate alloc] initWithPublic:w];
-    return 0;
-}
-
-int webview_loop(struct webview *w, int blocking) {
-    return [w->priv loop:blocking];
-}
-
-int webview_eval(struct webview *w, const char *js) {
-    return [w->priv eval:[NSString stringWithUTF8String:js]];
-}
-
-void webview_set_title(struct webview *w, const char *title) {
-    [w->priv setTitle:[NSString stringWithUTF8String:title]];
-}
-
-void webview_set_fullscreen(struct webview *w, int fullscreen) {
-    [w->priv setFullscreen:fullscreen];
-}
-
-void webview_set_color(struct webview *w, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
-    [w->priv setColor:[NSColor colorWithRed:(float)r/255.0 green:(float)g/255.0 blue:(float)b/255.0 alpha:(float)a/255.0]];
-}
-
-void webview_dialog(struct webview *w,
-                                enum webview_dialog_type type, int flags,
-                                const char *title, const char *arg,
-                                char *result, size_t resultsz) {
-
-    NSString *nsresult = [w->priv dialog:type flags:flags title:[NSString stringWithUTF8String:title] arg:[NSString stringWithUTF8String:arg]];
-    strlcpy(result, nsresult.UTF8String, resultsz);
-}
-
-static void webview_dispatch_cb(void *arg) {
-  struct webview_dispatch_arg *context = (struct webview_dispatch_arg *)arg;
-  (context->fn)(context->w, context->arg);
-  free(context);
-}
-
-void webview_dispatch(struct webview *w, webview_dispatch_fn fn,
-                                  void *arg) {
-  struct webview_dispatch_arg *context = (struct webview_dispatch_arg *)malloc(
-      sizeof(struct webview_dispatch_arg));
-  context->w = w;
-  context->arg = arg;
-  context->fn = fn;
-  dispatch_async_f(dispatch_get_main_queue(), context, webview_dispatch_cb);
-}
-
-void webview_terminate(struct webview *w) {
-    [w->priv terminate];
-}
-
-void webview_exit(struct webview *w) {
-    [w->priv exit];
-}
-
-void webview_print_log(const char *s) { printf("%s\n", s); }

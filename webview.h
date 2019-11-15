@@ -25,29 +25,11 @@
 #ifndef __WEBVIEW_H
 #define __WEBVIEW_H
 
-struct webview;
-enum webview_dialog_type;
-
-#ifdef DARWIN
-#import "webview_darwin.h"
-typedef WebViewDelegate* webkit_priv;
-#else
-#error "Unsupported OS"
-#endif
-
-typedef void (*webview_external_invoke_cb_t)(struct webview *w, const char *arg);
-
-struct webview {
-    const char *url;
-    const char *title;
-    int width;
-    int height;
-    int resizable;
-    int debug;
-    webview_external_invoke_cb_t external_invoke_cb;
-    void *userdata;
-    webkit_priv priv;
-};
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
 
 enum webview_dialog_type {
     WEBVIEW_DIALOG_TYPE_OPEN = 0,
@@ -62,14 +44,6 @@ enum webview_dialog_type {
 #define WEBVIEW_DIALOG_FLAG_WARNING (2 << 1)
 #define WEBVIEW_DIALOG_FLAG_ERROR (3 << 1)
 #define WEBVIEW_DIALOG_FLAG_ALERT_MASK (3 << 1)
-
-typedef void (*webview_dispatch_fn)(struct webview *w, void *arg);
-
-struct webview_dispatch_arg {
-    webview_dispatch_fn fn;
-    struct webview *w;
-    void *arg;
-};
 
 #define DEFAULT_URL                                                              \
     "data:text/"                                                                 \
@@ -86,24 +60,7 @@ struct webview_dispatch_arg {
     "css'),t.styleSheet?t.styleSheet.cssText=e:t.appendChild(document."          \
     "createTextNode(e)),d.appendChild(t)})"
 
-int webview(const char *title, const char *url, int width, int height, int resizable);
-int webview_init(struct webview *w);
-int webview_loop(struct webview *w, int blocking);
-int webview_eval(struct webview *w, const char *js);
-int webview_inject_css(struct webview *w, const char *css);
-void webview_set_title(struct webview *w, const char *title);
-void webview_set_fullscreen(struct webview *w, int fullscreen);
-void webview_set_color(struct webview *w, uint8_t r, uint8_t g,
-                                   uint8_t b, uint8_t a);
-void webview_dialog(struct webview *w,
-                                enum webview_dialog_type dlgtype, int flags,
-                                const char *title, const char *arg,
-                                char *result, size_t resultsz);
-void webview_dispatch(struct webview *w, webview_dispatch_fn fn,
-                                  void *arg);
-void webview_terminate(struct webview *w);
-void webview_exit(struct webview *w);
-void webview_debug(const char *format, ...);
-void webview_print_log(const char *s);
+int jsEncode(const char *s, char *esc, size_t n);
+int injectCSS(void *private, const char *css, int (*eval)(void *, const char *));
 
 #endif

@@ -1,158 +1,35 @@
-//
-// Package webview implements Go bindings to https://github.com/zserge/webview C library.
-//
-// Bindings closely repeat the C APIs and include both, a simplified
-// single-function API to just open a full-screen webview window, and a more
-// advanced and featureful set of APIs, including Go-to-JavaScript bindings.
-//
-// The library uses gtk-webkit, Cocoa/Webkit and MSHTML (IE8..11) as a browser
-// engine and supports Linux, MacOS and Windows 7..10 respectively.
-//
 package webview
 
 /*
 #cgo linux openbsd freebsd CFLAGS: -DLINUX -DGTK
-#cgo linux openbsd freebsd pkg-config: gtk+-3.0 webkit2gtk-4.0
-
 #cgo windows CFLAGS: -DWINDOWS
-#cgo windows LDFLAGS: -lole32 -lcomctl32 -loleaut32 -luuid -lgdi32
-
-#cgo darwin CFLAGS: -DDARWIN -DOBJC_OLD_DISPATCH_PROTOTYPES=1 -x objective-c
-#cgo darwin LDFLAGS: -framework Cocoa -framework WebKit
-
-#include <stdlib.h>
-#include <stdint.h>
+#cgo darwin CFLAGS: -DDARWIN
 #include "webview.h"
-
-extern void _webviewExternalInvokeCallback(void *, void *);
-
-static inline void CgoWebViewFree(void *w) {
-	free((void *)((struct webview *)w)->title);
-	free((void *)((struct webview *)w)->url);
-	free(w);
-}
-
-static inline void *CgoWebViewCreate(int width, int height, char *title, char *url, int resizable, int debug) {
-	struct webview *w = (struct webview *) calloc(1, sizeof(*w));
-	w->width = width;
-	w->height = height;
-	w->title = title;
-	w->url = url;
-	w->resizable = resizable;
-	w->debug = debug;
-	w->external_invoke_cb = (webview_external_invoke_cb_t) _webviewExternalInvokeCallback;
-	if (webview_init(w) != 0) {
-		CgoWebViewFree(w);
-		return NULL;
-	}
-	return (void *)w;
-}
-
-static inline int CgoWebViewLoop(void *w, int blocking) {
-	return webview_loop((struct webview *)w, blocking);
-}
-
-static inline void CgoWebViewTerminate(void *w) {
-	webview_terminate((struct webview *)w);
-}
-
-static inline void CgoWebViewExit(void *w) {
-	webview_exit((struct webview *)w);
-}
-
-static inline void CgoWebViewSetTitle(void *w, char *title) {
-	webview_set_title((struct webview *)w, title);
-}
-
-static inline void CgoWebViewSetFullscreen(void *w, int fullscreen) {
-	webview_set_fullscreen((struct webview *)w, fullscreen);
-}
-
-static inline void CgoWebViewSetColor(void *w, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
-	webview_set_color((struct webview *)w, r, g, b, a);
-}
-
-static inline void CgoDialog(void *w, int dlgtype, int flags,
-		char *title, char *arg, char *res, size_t ressz) {
-	webview_dialog(w, dlgtype, flags,
-		(const char*)title, (const char*) arg, res, ressz);
-}
-
-static inline int CgoWebViewEval(void *w, char *js) {
-	return webview_eval((struct webview *)w, js);
-}
-
-static inline void CgoWebViewInjectCSS(void *w, char *css) {
-	webview_inject_css((struct webview *)w, css);
-}
-
-extern void _webviewDispatchGoCallback(void *);
-static inline void _webview_dispatch_cb(struct webview *w, void *arg) {
-	_webviewDispatchGoCallback(arg);
-}
-static inline void CgoWebViewDispatch(void *w, uintptr_t arg) {
-	webview_dispatch((struct webview *)w, _webview_dispatch_cb, (void *)arg);
-}
 */
 import "C"
-import (
-	"bytes"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"html/template"
-	"log"
-	"reflect"
-	"runtime"
-	"sync"
-	"unicode"
-	"unsafe"
-)
+import "runtime"
 
 func init() {
-	// Ensure that main.main is called from the main thread
+	// Lock the goroutine responsible for initialization to an OS thread.
+	// This means the goroutine running main (and calling runApp below)
+	// is locked to the OS thread that started the program. This is
+	// necessary for the correct delivery of Cocoa events to the process.
+	//
+	// A discussion on this topic:
+	// https://groups.google.com/forum/#!msg/golang-nuts/IiWZ2hUuLDA/SNKYYZBelsYJ
 	runtime.LockOSThread()
-}
-
-// Open is a simplified API to open a single native window with a full-size webview in
-// it. It can be helpful if you want to communicate with the core app using XHR
-// or WebSockets (as opposed to using JavaScript bindings).
-//
-// Window appearance can be customized using title, width, height and resizable parameters.
-// URL must be provided and can user either a http or https protocol, or be a
-// local file:// URL. On some platforms "data:" URLs are also supported
-// (Linux/MacOS).
-func Open(title, url string, w, h int, resizable bool) error {
-	titleStr := C.CString(title)
-	defer C.free(unsafe.Pointer(titleStr))
-	urlStr := C.CString(url)
-	defer C.free(unsafe.Pointer(urlStr))
-	resize := C.int(0)
-	if resizable {
-		resize = C.int(1)
-	}
-
-	r := C.webview(titleStr, urlStr, C.int(w), C.int(h), resize)
-	if r != 0 {
-		return errors.New("failed to create webview")
-	}
-	return nil
 }
 
 // Debug prints a debug string using stderr on Linux/BSD, NSLog on MacOS and
 // OutputDebugString on Windows.
 func Debug(a ...interface{}) {
-	s := C.CString(fmt.Sprint(a...))
-	defer C.free(unsafe.Pointer(s))
-	C.webview_print_log(s)
+	debug(a...)
 }
 
 // Debugf prints a formatted debug string using stderr on Linux/BSD, NSLog on
 // MacOS and OutputDebugString on Windows.
 func Debugf(format string, a ...interface{}) {
-	s := C.CString(fmt.Sprintf(format, a...))
-	defer C.free(unsafe.Pointer(s))
-	C.webview_print_log(s)
+	debugf(format, a...)
 }
 
 // ExternalInvokeCallbackFunc is a function type that is called every time
@@ -253,24 +130,19 @@ const (
 	DialogFlagError = C.WEBVIEW_DIALOG_FLAG_ERROR
 )
 
-var (
-	m     sync.Mutex
-	index uintptr
-	fns   = map[uintptr]func(){}
-	cbs   = map[WebView]ExternalInvokeCallbackFunc{}
-)
-
-type webview struct {
-	w unsafe.Pointer
-}
-
-var _ WebView = &webview{}
-
-func boolToInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
+// Open is a simplified API to open a single native window with a full-size webview in
+// it. It can be helpful if you want to communicate with the core app using XHR
+// or WebSockets (as opposed to using JavaScript bindings).
+//
+// Window appearance can be customized using title, width, height and resizable parameters.
+// URL must be provided and can user either a http or https protocol, or be a
+// local file:// URL. On some platforms "data:" URLs are also supported
+// (Linux/MacOS).
+func Open(title, url string, width, height int, resizable bool) error {
+	w := newWebView(title, url, width, height, resizable, false)
+	w.Run()
+	w.Exit()
+	return nil
 }
 
 // New creates and opens a new webview window using the given settings. The
@@ -286,285 +158,19 @@ func New(settings Settings) WebView {
 	if settings.Title == "" {
 		settings.Title = "WebView"
 	}
-	w := &webview{}
-	w.w = C.CgoWebViewCreate(C.int(settings.Width), C.int(settings.Height),
-		C.CString(settings.Title), C.CString(settings.URL),
-		C.int(boolToInt(settings.Resizable)), C.int(boolToInt(settings.Debug)))
-	m.Lock()
-	if settings.ExternalInvokeCallback != nil {
-		cbs[w] = settings.ExternalInvokeCallback
-	} else {
-		cbs[w] = func(w WebView, data string) {}
-	}
-	m.Unlock()
-	return w
-}
 
-func (w *webview) Loop(blocking bool) bool {
-	block := C.int(0)
-	if blocking {
-		block = 1
+	w := newWebView(settings.Title, settings.URL, settings.Width, settings.Height, settings.Resizable, settings.Debug)
+	if w == nil {
+		return nil
 	}
-	return C.CgoWebViewLoop(w.w, block) == 0
+
+	if settings.ExternalInvokeCallback != nil {
+		w.addCallback(settings.ExternalInvokeCallback)
+	}
+	return w
 }
 
 func (w *webview) Run() {
 	for w.Loop(true) {
 	}
-}
-
-func (w *webview) Exit() {
-	C.CgoWebViewExit(w.w)
-}
-
-func (w *webview) Dispatch(f func()) {
-	m.Lock()
-	for ; fns[index] != nil; index++ {
-	}
-	fns[index] = f
-	m.Unlock()
-	C.CgoWebViewDispatch(w.w, C.uintptr_t(index))
-}
-
-func (w *webview) SetTitle(title string) {
-	p := C.CString(title)
-	defer C.free(unsafe.Pointer(p))
-	C.CgoWebViewSetTitle(w.w, p)
-}
-
-func (w *webview) SetColor(r, g, b, a uint8) {
-	C.CgoWebViewSetColor(w.w, C.uint8_t(r), C.uint8_t(g), C.uint8_t(b), C.uint8_t(a))
-}
-
-func (w *webview) SetFullscreen(fullscreen bool) {
-	C.CgoWebViewSetFullscreen(w.w, C.int(boolToInt(fullscreen)))
-}
-
-func (w *webview) Dialog(dlgType DialogType, flags int, title string, arg string) string {
-	const maxPath = 4096
-	titlePtr := C.CString(title)
-	defer C.free(unsafe.Pointer(titlePtr))
-	argPtr := C.CString(arg)
-	defer C.free(unsafe.Pointer(argPtr))
-	resultPtr := (*C.char)(C.calloc((C.size_t)(unsafe.Sizeof((*C.char)(nil))), (C.size_t)(maxPath)))
-	defer C.free(unsafe.Pointer(resultPtr))
-	C.CgoDialog(w.w, C.int(dlgType), C.int(flags), titlePtr,
-		argPtr, resultPtr, C.size_t(maxPath))
-	return C.GoString(resultPtr)
-}
-
-func (w *webview) Eval(js string) error {
-	p := C.CString(js)
-	defer C.free(unsafe.Pointer(p))
-	switch C.CgoWebViewEval(w.w, p) {
-	case -1:
-		return errors.New("evaluation failed")
-	}
-	return nil
-}
-
-func (w *webview) InjectCSS(css string) {
-	p := C.CString(css)
-	defer C.free(unsafe.Pointer(p))
-	C.CgoWebViewInjectCSS(w.w, p)
-}
-
-func (w *webview) Terminate() {
-	C.CgoWebViewTerminate(w.w)
-}
-
-//export _webviewDispatchGoCallback
-func _webviewDispatchGoCallback(index unsafe.Pointer) {
-	var f func()
-	m.Lock()
-	f = fns[uintptr(index)]
-	delete(fns, uintptr(index))
-	m.Unlock()
-	f()
-}
-
-//export _webviewExternalInvokeCallback
-func _webviewExternalInvokeCallback(w unsafe.Pointer, data unsafe.Pointer) {
-	m.Lock()
-	var (
-		cb ExternalInvokeCallbackFunc
-		wv WebView
-	)
-	for wv, cb = range cbs {
-		if wv.(*webview).w == w {
-			break
-		}
-	}
-	m.Unlock()
-	cb(wv, C.GoString((*C.char)(data)))
-}
-
-var bindTmpl = template.Must(template.New("").Parse(`
-if (typeof {{.Name}} === 'undefined') {
-	{{.Name}} = {};
-}
-{{ range .Methods }}
-{{$.Name}}.{{.JSName}} = function({{.JSArgs}}) {
-	window.external.invoke(JSON.stringify({scope: "{{$.Name}}", method: "{{.Name}}", params: [{{.JSArgs}}]}));
-};
-{{ end }}
-`))
-
-type binding struct {
-	Value   interface{}
-	Name    string
-	Methods []methodInfo
-}
-
-func newBinding(name string, v interface{}) (*binding, error) {
-	methods, err := getMethods(v)
-	if err != nil {
-		return nil, err
-	}
-	return &binding{Name: name, Value: v, Methods: methods}, nil
-}
-
-func (b *binding) JS() (string, error) {
-	js := &bytes.Buffer{}
-	err := bindTmpl.Execute(js, b)
-	return js.String(), err
-}
-
-func (b *binding) Sync() (string, error) {
-	js, err := json.Marshal(b.Value)
-	if err == nil {
-		return fmt.Sprintf("%[1]s.data=%[2]s;if(%[1]s.render){%[1]s.render(%[2]s);}", b.Name, string(js)), nil
-	}
-	return "", err
-}
-
-func (b *binding) Call(js string) bool {
-	type rpcCall struct {
-		Scope  string        `json:"scope"`
-		Method string        `json:"method"`
-		Params []interface{} `json:"params"`
-	}
-
-	rpc := rpcCall{}
-	if err := json.Unmarshal([]byte(js), &rpc); err != nil {
-		return false
-	}
-	if rpc.Scope != b.Name {
-		return false
-	}
-	var mi *methodInfo
-	for i := 0; i < len(b.Methods); i++ {
-		if b.Methods[i].Name == rpc.Method {
-			mi = &b.Methods[i]
-			break
-		}
-	}
-	if mi == nil {
-		return false
-	}
-	args := make([]reflect.Value, mi.Arity(), mi.Arity())
-	for i := 0; i < mi.Arity(); i++ {
-		val := reflect.ValueOf(rpc.Params[i])
-		arg := mi.Value.Type().In(i)
-		u := reflect.New(arg)
-		if b, err := json.Marshal(val.Interface()); err == nil {
-			if err = json.Unmarshal(b, u.Interface()); err == nil {
-				args[i] = reflect.Indirect(u)
-			}
-		}
-		if !args[i].IsValid() {
-			return false
-		}
-	}
-	mi.Value.Call(args)
-	return true
-}
-
-type methodInfo struct {
-	Name  string
-	Value reflect.Value
-}
-
-func (mi methodInfo) Arity() int { return mi.Value.Type().NumIn() }
-
-func (mi methodInfo) JSName() string {
-	r := []rune(mi.Name)
-	if len(r) > 0 {
-		r[0] = unicode.ToLower(r[0])
-	}
-	return string(r)
-}
-
-func (mi methodInfo) JSArgs() (js string) {
-	for i := 0; i < mi.Arity(); i++ {
-		if i > 0 {
-			js = js + ","
-		}
-		js = js + fmt.Sprintf("a%d", i)
-	}
-	return js
-}
-
-func getMethods(obj interface{}) ([]methodInfo, error) {
-	p := reflect.ValueOf(obj)
-	v := reflect.Indirect(p)
-	t := reflect.TypeOf(obj)
-	if t == nil {
-		return nil, errors.New("object can not be nil")
-	}
-	k := t.Kind()
-	if k == reflect.Ptr {
-		k = v.Type().Kind()
-	}
-	if k != reflect.Struct {
-		return nil, errors.New("must be a struct or a pointer to a struct")
-	}
-
-	methods := []methodInfo{}
-	for i := 0; i < t.NumMethod(); i++ {
-		method := t.Method(i)
-		if !unicode.IsUpper([]rune(method.Name)[0]) {
-			continue
-		}
-		mi := methodInfo{
-			Name:  method.Name,
-			Value: p.MethodByName(method.Name),
-		}
-		methods = append(methods, mi)
-	}
-
-	return methods, nil
-}
-
-func (w *webview) Bind(name string, v interface{}) (sync func(), err error) {
-	b, err := newBinding(name, v)
-	if err != nil {
-		return nil, err
-	}
-	js, err := b.JS()
-	if err != nil {
-		return nil, err
-	}
-	sync = func() {
-		if js, err := b.Sync(); err != nil {
-			log.Println(err)
-		} else {
-			w.Eval(js)
-		}
-	}
-
-	m.Lock()
-	cb := cbs[w]
-	cbs[w] = func(w WebView, data string) {
-		if ok := b.Call(data); ok {
-			sync()
-		} else {
-			cb(w, data)
-		}
-	}
-	m.Unlock()
-
-	w.Eval(js)
-	sync()
-	return sync, nil
 }
