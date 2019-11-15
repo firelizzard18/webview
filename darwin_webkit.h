@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2017 Serge Zaitsev
+ * Copyright (c) 2019 The WebView Authors
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -21,6 +21,9 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+
+// +build darwin
+// +build !gtk
 
 #ifndef __WEBVIEW_OS_H
 #define __WEBVIEW_OS_H
