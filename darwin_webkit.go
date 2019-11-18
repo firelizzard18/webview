@@ -23,16 +23,13 @@
  */
 
 // +build darwin
-// +build !gtk
+// +build webkit
 
 package webview
 
 /*
-#cgo CFLAGS: -x objective-c -DDARWIN
-#cgo LDFLAGS: -framework Cocoa -framework WebKit
-
 #import "webview.h"
-#import "webview_darwin.h"
+#import "darwin_webkit.h"
 
 extern void dispatchCallback(void *);
 

@@ -25,9 +25,6 @@
 package webview
 
 /*
-#cgo linux openbsd freebsd CFLAGS: -DLINUX -DGTK
-#cgo windows CFLAGS: -DWINDOWS
-#cgo darwin CFLAGS: -DDARWIN
 #include "webview.h"
 */
 import "C"

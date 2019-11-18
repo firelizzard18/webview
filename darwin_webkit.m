@@ -23,14 +23,10 @@
  */
 
 // +build darwin
-// +build !gtk
-
-#ifndef DARWIN
-#define DARWIN
-#endif
+// +build webkit
 
 #import "webview.h"
-#import "webview_darwin.h"
+#import "darwin_webkit.h"
 
 extern void webviewCallback(void *, const char *);
 
