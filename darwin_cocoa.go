@@ -23,7 +23,7 @@
  */
 
 // +build darwin
-// +build webkit
+// +build !gtk
 
 package webview
 

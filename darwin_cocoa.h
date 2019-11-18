@@ -23,7 +23,7 @@
  */
 
 // +build darwin
-// +build webkit
+// +build !gtk
 
 #ifndef __WEBVIEW_OS_H
 #define __WEBVIEW_OS_H

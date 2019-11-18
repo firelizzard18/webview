@@ -23,7 +23,7 @@
  */
 
 // +build darwin
-// +build webkit
+// +build !gtk
 
 #import "webview.h"
 #import "darwin_cocoa.h"

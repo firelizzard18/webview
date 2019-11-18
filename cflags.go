@@ -25,8 +25,8 @@
 package webview
 
 /*
-#cgo darwin,webkit CFLAGS: -x objective-c
-#cgo darwin,webkit LDFLAGS: -framework Cocoa -framework WebKit
+#cgo darwin,!gtk CFLAGS: -x objective-c
+#cgo darwin,!gtk LDFLAGS: -framework Cocoa -framework WebKit
 
 #cgo darwin,gtk pkg-config: gtk+-3.0 webkit2gtk-4.0
 */
