@@ -29,7 +29,7 @@ package webview
 
 /*
 #import "webview.h"
-#import "darwin_webkit.h"
+#import "darwin_cocoa.h"
 
 extern void dispatchCallback(void *);
 
