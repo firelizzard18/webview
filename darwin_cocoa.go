@@ -191,7 +191,7 @@ func webviewCallback(ptr unsafe.Pointer, cdata *C.char) {
 
 func (w *webview) addCallback(cb ExternalInvokeCallbackFunc) {
 	w.mu.Lock()
-	w.callbacks = append(w.callbacks)
+	w.callbacks = append(w.callbacks, cb)
 	w.mu.Unlock()
 }
 

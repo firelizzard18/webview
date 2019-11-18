@@ -190,7 +190,9 @@ func (w *webview) Bind(name string, v interface{}) (sync func(), err error) {
 	}
 
 	w.addCallback(func(w WebView, data string) {
-		sync()
+		if ok := b.Call(data); ok {
+			sync()
+		}
 	})
 
 	w.Eval(js)
