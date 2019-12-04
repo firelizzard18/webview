@@ -70,7 +70,7 @@ enum webview_dialog_type;
 
 - (id) initWithContext:(void *)context window:(NSWindow *)window url:(NSURL *)url debug:(BOOL)debug;
 
-- (int) eval:(NSString *)js;
+- (void) evaluateJavaScript:(NSString *)js completionHandler:(void *)handler;
 - (NSString *) dialog:(enum webview_dialog_type)type flags:(int)flags title:(NSString *)title arg:(NSString *)arg;
 @end
 

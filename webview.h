@@ -60,7 +60,7 @@ enum webview_dialog_type {
     "css'),t.styleSheet?t.styleSheet.cssText=e:t.appendChild(document."          \
     "createTextNode(e)),d.appendChild(t)})"
 
-int jsEncode(const char *s, char *esc, size_t n);
-int injectCSS(void *private, const char *css, int (*eval)(void *, const char *));
+int jsEncode(const char * s, char * esc, size_t n);
+void injectCSS(void * private, void * handler, const char * css, void (*eval)(void *, void *, const char *));
 
 #endif

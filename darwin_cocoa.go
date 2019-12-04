@@ -50,23 +50,20 @@ static void delegateRelease(void * self) {
 	[(WebViewDelegate *)self release];
 }
 
-static int delegateEvalNoFree(void * self, const char *js) {
+static void delegateEvalNoFree(void * self, void * handler, const char *js) {
 	NSString * _js = [[NSString alloc] initWithUTF8String:js];
-	int ret = [(WebViewDelegate *)self eval:_js];
+	[(WebViewDelegate *)self evaluateJavaScript:_js completionHandler:handler];
 	[_js release];
-	return ret;
 }
 
-static int delegateEval(void * del, const char *js) {
-	int ret = delegateEvalNoFree(del, js);
+static void delegateEval(void * del, void * handler, const char *js) {
+	delegateEvalNoFree(del, handler, js);
 	free((void *)js);
-	return ret;
 }
 
-static int delegateInjectCSS(void * del, const char *css) {
-	int ret = injectCSS(del, css, delegateEvalNoFree);
+static void delegateInjectCSS(void * del, void * handler, const char *css) {
+	injectCSS(del, handler, css, delegateEvalNoFree);
 	free((void *)css);
-	return ret;
 }
 
 static void delegateDialog(void * self, enum webview_dialog_type type, int flags, const char *title, const char *arg, char *result, size_t resultsz) {
@@ -82,12 +79,16 @@ static void delegateDialog(void * self, enum webview_dialog_type type, int flags
 */
 import "C"
 import (
+	"bufio"
+	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"unsafe"
 
 	"gitlab.com/firelizzard/go-app"
+	"gitlab.com/firelizzard/go-app/cgo"
 )
 
 func debug(a ...interface{}) {
@@ -142,17 +143,6 @@ func (w *webview) addCallback(cb ExternalInvokeCallbackFunc) {
 	w.mu.Unlock()
 }
 
-func (w *webview) Eval(js string) error {
-	ret := C.delegateEval(w.delegate, C.CString(js))
-
-	switch ret {
-	case -1:
-		return fmt.Errorf("evaluation failed")
-	}
-
-	return nil
-}
-
 func (w *webview) Dialog(typ DialogType, flags int, title, arg string) string {
 	const maxPath = 4096
 	result := (*C.char)(C.calloc((C.size_t)(unsafe.Sizeof((*C.char)(nil))), (C.size_t)(maxPath)))
@@ -162,6 +152,73 @@ func (w *webview) Dialog(typ DialogType, flags int, title, arg string) string {
 	return C.GoString(result)
 }
 
-func (w *webview) InjectCSS(css string) {
-	C.delegateInjectCSS(w.delegate, C.CString(css))
+func (w *webview) Eval(js string) (err error) {
+	done := make(chan struct{})
+
+	app.Dispatch(func() {
+		C.delegateEval(w.delegate, cgo.Save(func(description, message, url string, line, col int) {
+			if description == "" {
+				close(done)
+				return
+			}
+
+			if message == "" {
+				err = errors.New(description)
+				close(done)
+				return
+			}
+
+			scanner := bufio.NewScanner(strings.NewReader(js))
+			for i := 0; scanner.Scan(); i++ {
+				if i+1 == line {
+					break
+				}
+			}
+
+			text := strings.TrimSuffix(scanner.Text(), "\n")
+			if text == "" {
+				err = fmt.Errorf("%s: %s (line %d, col %d)", description, message, line, col)
+				close(done)
+				return
+			}
+
+			if col < len(text) {
+				err = fmt.Errorf("%s: %s (line %d, col %d):\n%s", description, message, line, col, text)
+				close(done)
+				return
+			}
+
+			err = fmt.Errorf("%s: %s (line %d, col %d):\n%s>%s", description, message, line, col, text[:col], text[col:])
+			close(done)
+		}).C(), C.CString(js))
+	})
+
+	<-done
+	return
+}
+
+func (w *webview) InjectCSS(css string) (err error) {
+	done := make(chan struct{})
+
+	app.Dispatch(func() {
+		C.delegateInjectCSS(w.delegate, cgo.Save(func(description, message, url string, line, col int) {
+			if description == "" {
+				close(done)
+				return
+			}
+
+			err = fmt.Errorf("%s", description)
+			close(done)
+		}).C(), C.CString(css))
+	})
+
+	<-done
+	return
+}
+
+//export javaScriptEvaluationComplete
+func javaScriptEvaluationComplete(ref unsafe.Pointer, description, message, url *C.char, line, col C.int) {
+	r := cgo.Reference(ref)
+	r.Load().(func(description, message, url string, line, col int))(C.GoString(description), C.GoString(message), C.GoString(url), int(line), int(col))
+	r.Delete()
 }

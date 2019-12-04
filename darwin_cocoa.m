@@ -29,6 +29,7 @@
 #import "darwin_cocoa.h"
 
 extern void webviewCallback(void *, const char *);
+extern void javaScriptEvaluationComplete(void * ref, const char * description, const char * message, const char * url, int line, int col);
 
 @implementation WebViewDelegate
 - (id) initWithContext:(void *)context window:(NSWindow *)window url:(NSURL *)url debug:(BOOL)debug
@@ -161,10 +162,20 @@ extern void webviewCallback(void *, const char *);
     // }
 }
 
-- (int) eval:(NSString *)js
+- (void) evaluateJavaScript:(NSString *)js completionHandler:(void *)handler
 {
-    [_webview evaluateJavaScript:js completionHandler:NULL];
-    return 0;
+    [_webview evaluateJavaScript:js completionHandler:^(id _, NSError *error) {
+        if (!error) {
+            javaScriptEvaluationComplete(handler, NULL, NULL, NULL, -1, -1);
+            return;
+        }
+
+        NSString * message = error.userInfo[@"WKJavaScriptExceptionMessage"];
+        NSURL * url = error.userInfo[@"WKJavaScriptExceptionSourceURL"];
+        NSNumber * line = error.userInfo[@"WKJavaScriptExceptionLineNumber"];
+        NSNumber * col = error.userInfo[@"WKJavaScriptExceptionColumnNumber"];
+        javaScriptEvaluationComplete(handler, error.localizedDescription.UTF8String, message.UTF8String, url.description.UTF8String, line.integerValue, col.integerValue);
+    }];
 }
 
 - (NSString *) dialog:(enum webview_dialog_type)type flags:(int)flags title:(NSString *)title arg:(NSString *)arg

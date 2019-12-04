@@ -46,17 +46,16 @@ int jsEncode(const char *s, char *esc, size_t n) {
 	return r;
 }
 
-int injectCSS(void *private, const char *css, int (*eval)(void *, const char *)) {
+void injectCSS(void * private, void * handler, const char * css, void (*eval)(void *, void *, const char *)) {
 	int n = jsEncode(css, NULL, 0);
 	char *esc = (char *)calloc(1, sizeof(CSS_INJECT_FUNCTION) + n + 4);
 	if (esc == NULL) {
-		return -1;
+		return;
 	}
 	char *js = (char *)calloc(1, n);
 	jsEncode(css, js, n);
 	snprintf(esc, sizeof(CSS_INJECT_FUNCTION) + n + 4, "%s(\"%s\")", CSS_INJECT_FUNCTION, js);
-	int r = eval(private, esc);
+	eval(private, handler, esc);
 	free(js);
 	free(esc);
-	return r;
 }

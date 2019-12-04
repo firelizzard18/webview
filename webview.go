@@ -63,13 +63,12 @@ type Settings struct {
 // WebView is an interface that wraps the basic methods for controlling the UI
 // loop, handling multithreading and providing JavaScript bindings.
 type WebView interface {
-	// Eval() evaluates an arbitrary JS code inside the webview. This method must
-	// be called from the main thread only. See Dispatch() for more details.
+	// Eval() evaluates an arbitrary JS code inside the webview. This method
+	// MUST NOT be called from the main thread.
 	Eval(js string) error
 	// InjectJS() injects an arbitrary block of CSS code using the JS API. This
-	// method must be called from the main thread only. See Dispatch() for more
-	// details.
-	InjectCSS(css string)
+	// method MUST NOT be called from the main thread.
+	InjectCSS(css string) error
 	// Dialog() opens a system dialog of the given type and title. String
 	// argument can be provided for certain dialogs, such as alert boxes. For
 	// alert boxes argument is a message inside the dialog box.
