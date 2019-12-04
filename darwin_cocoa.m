@@ -30,25 +30,14 @@
 
 extern void webviewCallback(void *, const char *);
 
-static void createMenuItem(NSMenu *menu, NSString *title, SEL action, NSString *key, NSEventModifierFlags modifiers) {
-    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:title action:action keyEquivalent:key];
-    if (modifiers) item.keyEquivalentModifierMask = modifiers;
-    [item autorelease];
-    [menu addItem:item];
-}
-
 @implementation WebViewDelegate
-- (id) initWithContext:(void *)context url:(NSURL *)url title:(NSString *)title width:(int)width height:(int)height resizable:(BOOL)resizable debug:(BOOL)debug
+- (id) initWithContext:(void *)context window:(NSWindow *)window url:(NSURL *)url debug:(BOOL)debug
 {
     if (!(self = [super init]))
         return nil;
 
     _context = context;
-    _shouldExit = NO;
-    _pool = [NSAutoreleasePool new];
-
-    // ensure the shared instance is created
-    [NSApplication sharedApplication];
+    _window = window;
 
     WKPreferences *wkprefs = [WKPreferences new];
     if (debug) [wkprefs _setDeveloperExtrasEnabled:YES];
@@ -72,62 +61,22 @@ static void createMenuItem(NSMenu *menu, NSString *title, SEL action, NSString *
     config.userContentController = userController;
     config.preferences = wkprefs;
 
-    CGRect r = CGRectMake(0, 0, width, height);
-    NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable;
-    if (resizable)
-        style |= NSWindowStyleMaskResizable;
-
-    _window = [[NSWindow alloc] initWithContentRect:r styleMask:style backing:NSBackingStoreBuffered defer:NO];
-
-    _window.title = title;
-    _window.delegate = self;
-
-    [_window autorelease];
-    [_window center];
-
-    _webview = [[WKWebView alloc] initWithFrame:r configuration:config];
+    _webview = [[WKWebView alloc] initWithFrame:[window contentRectForFrameRect:window.frame] configuration:config];
     _webview.UIDelegate = self;
     _webview.navigationDelegate = self;
 
     [_webview loadRequest:[NSURLRequest requestWithURL:url]];
     _webview.autoresizesSubviews = YES;
     _webview.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    [_window.contentView addSubview:_webview];
-    [_window orderFrontRegardless];
-
-    NSApplication.sharedApplication.activationPolicy = NSApplicationActivationPolicyRegular;
-    [NSApplication.sharedApplication finishLaunching];
-    [NSApplication.sharedApplication activateIgnoringOtherApps:YES];
-
-    NSMenu *menubar = [[NSMenu alloc] initWithTitle:@""];
-    [menubar autorelease];
-
-    NSString *appName = NSProcessInfo.processInfo.processName;
-
-    NSMenuItem *appMenuItem = [[NSMenuItem alloc] initWithTitle:appName action:NULL keyEquivalent:@""];
-
-    NSMenu *appMenu = [[NSMenu alloc] initWithTitle:appName];
-    [appMenu autorelease];
-
-    appMenuItem.submenu = appMenu;
-    [menubar addItem:appMenuItem];
-
-    createMenuItem(appMenu, [@"Hide " stringByAppendingString:appName], @selector(hide:), @"h", NSEventModifierFlagCommand);
-    createMenuItem(appMenu, @"Hide Others", @selector(hideOtherApplications:), @"h", NSEventModifierFlagCommand | NSEventModifierFlagOption);
-    createMenuItem(appMenu, @"Show All", @selector(unhideAllApplications:), @"", 0);
-
-    [appMenu addItem:NSMenuItem.separatorItem];
-
-    createMenuItem(appMenu, [@"Quit " stringByAppendingString:appName], @selector(terminate:), @"q", NSEventModifierFlagCommand);
-
-    NSApplication.sharedApplication.mainMenu = menubar;
+    [window.contentView addSubview:_webview];
 
     return self;
 }
 
-- (void) windowWillClose:(NSNotification *)notification
+- (void) dealloc
 {
-    _shouldExit = YES;
+    [_webview release];
+    [super dealloc];
 }
 
 - (void) userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message
@@ -212,44 +161,10 @@ static void createMenuItem(NSMenu *menu, NSString *title, SEL action, NSString *
     // }
 }
 
-- (int) loop:(BOOL)blocking
-{
-    NSDate *until = blocking ? NSDate.distantFuture : NSDate.distantPast;
-    NSEvent *event = [NSApplication.sharedApplication nextEventMatchingMask:NSEventMaskAny untilDate:until inMode:NSDefaultRunLoopMode dequeue:YES];
-    if (event)
-        [NSApplication.sharedApplication sendEvent:event];
-
-    return _shouldExit;
-}
-
 - (int) eval:(NSString *)js
 {
     [_webview evaluateJavaScript:js completionHandler:NULL];
     return 0;
-}
-
-- (void) setTitle:(NSString *)title
-{
-    _window.title = title;
-}
-
-- (void) setFullscreen:(BOOL)fullscreen
-{
-    if ((_window.styleMask & NSWindowStyleMaskFullScreen) ^ fullscreen)
-        [_window toggleFullScreen:NULL];
-}
-
-- (void) setColor:(NSColor *)color
-{
-    _window.backgroundColor = color;
-    if (0.5 >= (color.redComponent * 0.299) + (color.greenComponent * 0.587) + (color.blueComponent * 0.114)) {
-        _window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameVibrantDark];
-    } else {
-        _window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameVibrantLight];
-    }
-
-    _window.opaque = NO;
-    _window.titlebarAppearsTransparent = YES;
 }
 
 - (NSString *) dialog:(enum webview_dialog_type)type flags:(int)flags title:(NSString *)title arg:(NSString *)arg
@@ -267,7 +182,7 @@ static void createMenuItem(NSMenu *menu, NSString *title, SEL action, NSString *
         panel.canSelectHiddenExtension = NO;
         panel.treatsFilePackagesAsDirectories = YES;
 
-        [panel beginSheetModalForWindow:_window completionHandler:^(NSModalResponse result) {
+        [panel beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse result) {
             [NSApplication.sharedApplication stopModalWithCode:result];
         }];
 
@@ -286,7 +201,7 @@ static void createMenuItem(NSMenu *menu, NSString *title, SEL action, NSString *
         panel.canSelectHiddenExtension = NO;
         panel.treatsFilePackagesAsDirectories = YES;
 
-        [panel beginSheetModalForWindow:_window completionHandler:^(NSModalResponse result) {
+        [panel beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse result) {
             [NSApplication.sharedApplication stopModalWithCode:result];
         }];
 
@@ -326,10 +241,5 @@ static void createMenuItem(NSMenu *menu, NSString *title, SEL action, NSString *
     }
 
     return nil;
-}
-
-- (void) stop
-{
-    _shouldExit = YES;
 }
 @end

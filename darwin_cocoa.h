@@ -63,24 +63,15 @@
 
 enum webview_dialog_type;
 
-@interface WebViewDelegate : NSObject <NSWindowDelegate, WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate, WKDownloadDelegate>
-{
-    NSAutoreleasePool *_pool;
-    NSWindow *_window;
-    WKWebView *_webview;
-    BOOL _shouldExit;
-    void *_context;
-}
+@interface WebViewDelegate : NSObject <WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate, WKDownloadDelegate>
+@property (readonly, assign) NSWindow * window;
+@property (readonly, assign) WKWebView * webview;
+@property (readonly, assign) void * context;
 
-- (id) initWithContext:(void *)context url:(NSURL *)url title:(NSString *)title width:(int)width height:(int)height resizable:(BOOL)resizable debug:(BOOL)debug;
+- (id) initWithContext:(void *)context window:(NSWindow *)window url:(NSURL *)url debug:(BOOL)debug;
 
-- (int) loop:(BOOL)blocking;
 - (int) eval:(NSString *)js;
-- (void) setTitle:(NSString *)title;
-- (void) setFullscreen:(BOOL)fullscreen;
-- (void) setColor:(NSColor *)color;
 - (NSString *) dialog:(enum webview_dialog_type)type flags:(int)flags title:(NSString *)title arg:(NSString *)arg;
-- (void) stop;
 @end
 
 #endif
