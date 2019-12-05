@@ -172,7 +172,13 @@ func getMethods(obj interface{}) ([]methodInfo, error) {
 	return methods, nil
 }
 
-func (w *webview) Bind(name string, v interface{}) (sync func(), err error) {
+// Bind() registers a binding between a given value and a JavaScript object with
+// the given name.  A value must be a struct or a struct pointer. All methods
+// are available under their camel-case names, starting with a lower-case
+// letter, e.g. "FooBar" becomes "fooBar" in JavaScript. Bind() returns a
+// function that updates JavaScript object with the current Go value. You only
+// need to call it if you change Go value asynchronously.
+func (w *WebView) Bind(name string, v interface{}) (sync func(), err error) {
 	b, err := newBinding(name, v)
 	if err != nil {
 		return nil, err
@@ -185,17 +191,17 @@ func (w *webview) Bind(name string, v interface{}) (sync func(), err error) {
 		if js, err := b.Sync(); err != nil {
 			log.Println(err)
 		} else {
-			w.Eval(js)
+			w.Evaluate(js)
 		}
 	}
 
-	w.addCallback(func(w WebView, data string) {
+	w.AddCallback(func(data string) {
 		if ok := b.Call(data); ok {
 			sync()
 		}
 	})
 
-	w.Eval(js)
+	w.Evaluate(js)
 	sync()
 	return sync, nil
 }

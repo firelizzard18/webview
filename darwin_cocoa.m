@@ -26,13 +26,52 @@
 // +build !gtk
 
 #import "webview.h"
-#import "darwin_cocoa.h"
+
+#import <AppKit/AppKit.h>
+#import <WebKit/WebKit.h>
+#import <CoreGraphics/CoreGraphics.h>
 
 extern void webviewCallback(void *, const char *);
 extern void javaScriptEvaluationComplete(void * ref, const char * description, const char * message, const char * url, int line, int col);
 
+// https://github.com/WebKit/webkit/blob/master/Source/WebKit/UIProcess/API/Cocoa/_WKDownload.h
+@class _WKDownload;
+
+// https://github.com/WebKit/webkit/blob/master/Source/WebKit/UIProcess/API/Cocoa/_WKDownloadDelegate.h
+// https://github.com/WebKit/webkit/blob/master/Tools/TestWebKitAPI/Tests/WebKitCocoa/Download.mm
+@protocol WKDownloadDelegate
+@optional
+- (void)_downloadDidStart:(_WKDownload *)download;
+- (void)_download:(_WKDownload *)download didReceiveServerRedirectToURL:(NSURL *)url;
+- (void)_download:(_WKDownload *)download didReceiveResponse:(NSURLResponse *)response;
+- (void)_download:(_WKDownload *)download didReceiveData:(uint64_t)length;
+- (void)_download:(_WKDownload *)download decideDestinationWithSuggestedFilename:(NSString *)filename completionHandler:(void (^)(BOOL allowOverwrite, NSString *destination))completionHandler;
+- (void)_downloadDidFinish:(_WKDownload *)download;
+- (void)_download:(_WKDownload *)download didFailWithError:(NSError *)error;
+- (void)_downloadDidCancel:(_WKDownload *)download;
+- (void)_download:(_WKDownload *)download didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential*))completionHandler;
+- (void)_download:(_WKDownload *)download didCreateDestination:(NSString *)destination;
+- (void)_downloadProcessDidCrash:(_WKDownload *)download;
+- (BOOL)_download:(_WKDownload *)download shouldDecodeSourceDataOfMIMEType:(NSString *)MIMEType;
+@end
+
+@interface WKProcessPool (Download)
+- (void) _setDownloadDelegate:(id<WKDownloadDelegate>)del;
+@end
+
+@interface WKPreferences (DevExtras)
+- (void) _setDeveloperExtrasEnabled:(BOOL)enabled;
+@end
+
+enum webview_dialog_type;
+
+@interface WebViewDelegate : NSObject <WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate, WKDownloadDelegate>
+@property (readonly, assign) NSWindow * window;
+@property (readonly, assign) void * context;
+@end
+
 @implementation WebViewDelegate
-- (id) initWithContext:(void *)context window:(NSWindow *)window url:(NSURL *)url debug:(BOOL)debug
+- (id) initWithContext:(void *)context window:(NSWindow *)window
 {
     if (!(self = [super init]))
         return nil;
@@ -40,44 +79,7 @@ extern void javaScriptEvaluationComplete(void * ref, const char * description, c
     _context = context;
     _window = window;
 
-    WKPreferences *wkprefs = [WKPreferences new];
-    if (debug) [wkprefs _setDeveloperExtrasEnabled:YES];
-
-    WKUserContentController *userController = [WKUserContentController new];
-    [userController addScriptMessageHandler:self name:@"invoke"];
-
-    /***
-     In order to maintain compatibility with the other 'webviews' we need to
-     override window.external.invoke to call
-     webkit.messageHandlers.invoke.postMessage
-     ***/
-
-    NSString *src = @"window.external = this; invoke = function(arg){ webkit.messageHandlers.invoke.postMessage(arg); };";
-    [userController addUserScript:[[WKUserScript alloc] initWithSource:src injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:NO]];
-
-    WKWebViewConfiguration *config = [WKWebViewConfiguration new];
-    WKProcessPool *processPool = config.processPool;
-    [processPool _setDownloadDelegate:self];
-    config.processPool = processPool;
-    config.userContentController = userController;
-    config.preferences = wkprefs;
-
-    _webview = [[WKWebView alloc] initWithFrame:[window contentRectForFrameRect:window.frame] configuration:config];
-    _webview.UIDelegate = self;
-    _webview.navigationDelegate = self;
-
-    [_webview loadRequest:[NSURLRequest requestWithURL:url]];
-    _webview.autoresizesSubviews = YES;
-    _webview.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    [window.contentView addSubview:_webview];
-
     return self;
-}
-
-- (void) dealloc
-{
-    [_webview release];
-    [super dealloc];
 }
 
 - (void) userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message
@@ -162,22 +164,6 @@ extern void javaScriptEvaluationComplete(void * ref, const char * description, c
     // }
 }
 
-- (void) evaluateJavaScript:(NSString *)js completionHandler:(void *)handler
-{
-    [_webview evaluateJavaScript:js completionHandler:^(id _, NSError *error) {
-        if (!error) {
-            javaScriptEvaluationComplete(handler, NULL, NULL, NULL, -1, -1);
-            return;
-        }
-
-        NSString * message = error.userInfo[@"WKJavaScriptExceptionMessage"];
-        NSURL * url = error.userInfo[@"WKJavaScriptExceptionSourceURL"];
-        NSNumber * line = error.userInfo[@"WKJavaScriptExceptionLineNumber"];
-        NSNumber * col = error.userInfo[@"WKJavaScriptExceptionColumnNumber"];
-        javaScriptEvaluationComplete(handler, error.localizedDescription.UTF8String, message.UTF8String, url.description.UTF8String, line.integerValue, col.integerValue);
-    }];
-}
-
 - (NSString *) dialog:(enum webview_dialog_type)type flags:(int)flags title:(NSString *)title arg:(NSString *)arg
 {
     if (type == WEBVIEW_DIALOG_TYPE_OPEN) {
@@ -254,3 +240,39 @@ extern void javaScriptEvaluationComplete(void * ref, const char * description, c
     return nil;
 }
 @end
+
+WKWebView * newWebView(void * context, WKWebViewConfiguration * config, NSWindow * window) {
+    NSString * src = @"window.external = this; invoke = function(arg){ webkit.messageHandlers.invoke.postMessage(arg); };";
+    WKUserScript * script = [[WKUserScript alloc] initWithSource:src injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:NO];
+    [config.userContentController addUserScript:script];
+    [script release];
+
+    WebViewDelegate * del = [[WebViewDelegate alloc] initWithContext:context window:window];
+
+    [config.userContentController addScriptMessageHandler:del name:@"invoke"];
+    [config.processPool _setDownloadDelegate:del];
+
+    WKWebView * webView = [[WKWebView alloc] initWithFrame:[window contentRectForFrameRect:window.frame] configuration:config];
+    webView.UIDelegate = del;
+    webView.navigationDelegate = del;
+    webView.autoresizesSubviews = YES;
+    webView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    [window.contentView addSubview:webView];
+
+    return webView;
+}
+
+void evaluateJavaScript(WKWebView * self, NSString * js, void * handler) {
+    [self evaluateJavaScript:js completionHandler:^(id result, NSError *error) {
+        if (!error) {
+            javaScriptEvaluationComplete(handler, NULL, NULL, NULL, -1, -1);
+            return;
+        }
+
+        NSString * message = error.userInfo[@"WKJavaScriptExceptionMessage"];
+        NSURL * url = error.userInfo[@"WKJavaScriptExceptionSourceURL"];
+        NSNumber * line = error.userInfo[@"WKJavaScriptExceptionLineNumber"];
+        NSNumber * col = error.userInfo[@"WKJavaScriptExceptionColumnNumber"];
+        javaScriptEvaluationComplete(handler, error.localizedDescription.UTF8String, message.UTF8String, url.description.UTF8String, line.integerValue, col.integerValue);
+    }];
+}
