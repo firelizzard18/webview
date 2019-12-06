@@ -25,8 +25,6 @@
 // +build darwin
 // +build !gtk
 
-#import "webview.h"
-
 #import <AppKit/AppKit.h>
 #import <WebKit/WebKit.h>
 #import <CoreGraphics/CoreGraphics.h>
@@ -53,14 +51,6 @@ extern void javaScriptEvaluationComplete(void * ref, const char * description, c
 - (void)_download:(_WKDownload *)download didCreateDestination:(NSString *)destination;
 - (void)_downloadProcessDidCrash:(_WKDownload *)download;
 - (BOOL)_download:(_WKDownload *)download shouldDecodeSourceDataOfMIMEType:(NSString *)MIMEType;
-@end
-
-@interface WKProcessPool (Download)
-- (void) _setDownloadDelegate:(id<WKDownloadDelegate>)del;
-@end
-
-@interface WKPreferences (DevExtras)
-- (void) _setDeveloperExtrasEnabled:(BOOL)enabled;
 @end
 
 enum webview_dialog_type;
@@ -163,82 +153,6 @@ enum webview_dialog_type;
     //     decisionHandler(WKNavigationActionPolicyDownload);
     // }
 }
-
-- (NSString *) dialog:(enum webview_dialog_type)type flags:(int)flags title:(NSString *)title arg:(NSString *)arg
-{
-    if (type == WEBVIEW_DIALOG_TYPE_OPEN) {
-        NSOpenPanel *panel = [NSOpenPanel openPanel];
-        panel.canChooseFiles = !(flags & WEBVIEW_DIALOG_FLAG_DIRECTORY);
-        panel.canChooseDirectories = !!(flags & WEBVIEW_DIALOG_FLAG_DIRECTORY);
-        panel.resolvesAliases = NO;
-        panel.allowsMultipleSelection = NO;
-
-        panel.canCreateDirectories = YES;
-        panel.showsHiddenFiles = YES;
-        panel.extensionHidden = NO;
-        panel.canSelectHiddenExtension = NO;
-        panel.treatsFilePackagesAsDirectories = YES;
-
-        [panel beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse result) {
-            [NSApplication.sharedApplication stopModalWithCode:result];
-        }];
-
-        if ([NSApplication.sharedApplication runModalForWindow:panel] == NSModalResponseOK) {
-            return panel.URL.path;
-        }
-        return nil;
-
-    }
-
-    if (type == WEBVIEW_DIALOG_TYPE_SAVE) {
-        NSSavePanel *panel = [NSSavePanel savePanel];
-        panel.canCreateDirectories = YES;
-        panel.showsHiddenFiles = YES;
-        panel.extensionHidden = NO;
-        panel.canSelectHiddenExtension = NO;
-        panel.treatsFilePackagesAsDirectories = YES;
-
-        [panel beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse result) {
-            [NSApplication.sharedApplication stopModalWithCode:result];
-        }];
-
-        if ([NSApplication.sharedApplication runModalForWindow:panel] == NSModalResponseOK) {
-            return panel.URL.path;
-        }
-        return nil;
-    }
-
-    if (type == WEBVIEW_DIALOG_TYPE_ALERT) {
-        NSAlert *alert = [NSAlert new];
-
-        switch (flags & WEBVIEW_DIALOG_FLAG_ALERT_MASK) {
-        case WEBVIEW_DIALOG_FLAG_INFO:
-            alert.alertStyle = NSAlertStyleInformational;
-            break;
-
-        case WEBVIEW_DIALOG_FLAG_WARNING:
-            printf("Warning\n");
-            alert.alertStyle = NSAlertStyleWarning;
-            break;
-
-        case WEBVIEW_DIALOG_FLAG_ERROR:
-            printf("Error\n");
-            alert.alertStyle = NSAlertStyleCritical;
-            break;
-        }
-
-        alert.showsHelp = NO;
-        alert.showsSuppressionButton = NO;
-        alert.messageText = title;
-        alert.informativeText = arg;
-        [alert addButtonWithTitle:@"OK"];
-        [alert runModal];
-        [alert release];
-        return nil;
-    }
-
-    return nil;
-}
 @end
 
 WKWebView * newWebView(void * context, WKWebViewConfiguration * config, NSWindow * window) {
@@ -250,7 +164,7 @@ WKWebView * newWebView(void * context, WKWebViewConfiguration * config, NSWindow
     WebViewDelegate * del = [[WebViewDelegate alloc] initWithContext:context window:window];
 
     [config.userContentController addScriptMessageHandler:del name:@"invoke"];
-    [config.processPool _setDownloadDelegate:del];
+    [config.processPool setValue:del forKey:@"downloadDelegate"];
 
     WKWebView * webView = [[WKWebView alloc] initWithFrame:[window contentRectForFrameRect:window.frame] configuration:config];
     webView.UIDelegate = del;

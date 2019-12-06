@@ -28,12 +28,7 @@
 package webview
 
 /*
-#import "webview.h"
 #import <WebKit/WebKit.h>
-
-@interface WebViewDelegate : NSObject
-- (NSString *) dialog:(enum webview_dialog_type)type flags:(int)flags title:(NSString *)title arg:(NSString *)arg;
-@end
 
 void * newWebView(void * context, void * config, void * window);
 void evaluateJavaScript(void * self, void * js, void * handler);
@@ -48,10 +43,6 @@ static void enableDebug(void * self) {
 
 static void load(void * self, void * url) {
 	[(WKWebView *)self loadRequest:[NSURLRequest requestWithURL:url]];
-}
-
-static void * dialog(void * self, enum webview_dialog_type type, int flags, void *title, void *arg) {
-    return [(WebViewDelegate *)self dialog:type flags:flags title:(NSString *)title arg:(NSString *)arg];
 }
 */
 import "C"
@@ -168,17 +159,6 @@ func (w *WebView) Evaluate(js string) (err error) {
 
 	<-done
 	return
-}
-
-func (w *WebView) Dialog(typ DialogType, flags int, title, arg string) string {
-	_title := objc.NSString(title)
-	defer objc.Release(_title)
-
-	_arg := objc.NSString(arg)
-	defer objc.Release(_arg)
-
-	r := C.dialog(objc.ValueForKey(w.id, "navigationDelegate"), C.enum_webview_dialog_type(typ), C.int(flags), _title, _arg)
-	return objc.GoString(r)
 }
 
 //export webviewCallback
